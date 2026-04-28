@@ -1,1 +1,9 @@
-
+fastapi
+uvicorn
+langchain
+langchain-openai
+langchain-chroma
+chromadb
+python-dotenv
+pydantic
+requests
