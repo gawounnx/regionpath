@@ -1,41 +1,9 @@
+import os, json
 from langchain_openai import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationChain
-from langchain.prompts import PromptTemplate
-import json, os
+from langchain_core.prompts import PromptTemplate
+from dotenv import load_dotenv
 
-SYSTEM_PROMPT = """
-당신은 비수도권 청년 구직자의 취업 포트폴리오를 만들어주는 AI 인터뷰어입니다.
-
-아래 항목들을 자연스러운 대화로 순서대로 수집하세요:
-1. 희망 직무 (job)
-2. 희망 지역 (region)  
-3. 보유 기술 스택 (skills)
-4. 자격증 (certificates)
-5. 프로젝트 경험 (projects)
-6. 국비훈련 이수 이력 (training_history)
-
-모든 항목 수집이 완료되면 반드시 아래 형식의 JSON을 출력하세요:
-[PORTFOLIO_COMPLETE]
-{
-  "profile": {
-    "job": "",
-    "region": "",
-    "skills": [],
-    "certificates": [],
-    "projects": [{"name": "", "tech_stack": []}],
-    "training_history": []
-  },
-  "ncs_tags": [],
-  "portfolio_summary": "",
-  "strength_tags": [],
-  "completeness_score": 0.0
-}
-
-ncs_tags는 직무에 맞는 NCS 능력단위명으로 채우세요. (예: 응용SW엔지니어링, 데이터베이스)
-completeness_score는 0.0~1.0 사이로, 항목 충실도에 따라 채우세요.
-아직 수집 중이면 자연스럽게 다음 질문을 이어가세요.
-"""
+load_dotenv()
 
 llm = ChatOpenAI(
     model="gpt-4o-mini",
@@ -43,52 +11,68 @@ llm = ChatOpenAI(
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
 
-# 세션별 메모리 저장소
-session_memories: dict[str, ConversationBufferMemory] = {}
+PORTFOLIO_PROMPT = PromptTemplate.from_template("""
+당신은 비수도권 청년 취업 포트폴리오 전문가입니다.
+아래 구직자 정보를 분석하여 포트폴리오를 생성하세요.
 
-def get_or_create_memory(session_id: str) -> ConversationBufferMemory:
-    if session_id not in session_memories:
-        session_memories[session_id] = ConversationBufferMemory(
-            return_messages=True
-        )
-    return session_memories[session_id]
+[구직자 정보]
+- 희망 직무: {job}
+- 희망 산업: {industry}
+- 희망 지역: {region}
+- 보유 기술: {skills}
+- 자격증: {certificates}
+- 학력: {education}
+- 프로젝트: {projects}
+- 활동 이력: {activities}
+- 훈련 이력: {training_history}
 
-def chat(session_id: str, user_message: str) -> dict:
-    memory = get_or_create_memory(session_id)
-    
-    chain = ConversationChain(
-        llm=llm,
-        memory=memory,
-        verbose=False
+[출력 형식 — JSON만 출력, 다른 텍스트 없이]
+{{
+  "portfolio_summary": "구직자의 강점과 목표를 담은 2~3문장 한국어 요약. {region} 지역 취업 시장 특성 반영.",
+  "strength_tags": ["실제 보유 스펙 기반 강점 태그 3~5개"],
+  "weakness_hint": "희망 직무 대비 가장 보완이 필요한 부분 한 문장",
+  "completeness_score": 0.0
+}}
+
+작성 기준:
+- strength_tags는 실제 입력된 스펙에서만 추출 (과장 금지)
+- weakness_hint는 F-02 갭 분석의 시작점이 되므로 구체적으로 작성
+- completeness_score: 기술/자격증/프로젝트 각각 0.33점씩 부여
+""")
+
+def generate_portfolio_with_llm(
+    job: str, industry: str, region: str, profile: dict
+) -> dict:
+    prompt = PORTFOLIO_PROMPT.format(
+        job=job,
+        industry=industry or "미입력",
+        region=region or "미입력",
+        skills=", ".join(profile.get("skills", [])) or "없음",
+        certificates=", ".join(profile.get("certificates", [])) or "없음",
+        education=profile.get("education", "없음"),
+        projects=", ".join([
+            p.get("name", "") for p in profile.get("projects", [])
+        ]) or "없음",
+        activities=", ".join(profile.get("activities", [])) or "없음",
+        training_history=", ".join(
+            profile.get("training_history", [])
+        ) or "없음"
     )
-    
-    # 첫 메시지면 시스템 프롬프트 주입
-    if len(memory.chat_memory.messages) == 0:
-        full_message = SYSTEM_PROMPT + "\n\n사용자: " + user_message
-    else:
-        full_message = user_message
-    
-    response = chain.predict(input=full_message)
-    
-    # 포트폴리오 완성 여부 체크
-    if "[PORTFOLIO_COMPLETE]" in response:
-        try:
-            json_str = response.split("[PORTFOLIO_COMPLETE]")[1].strip()
-            portfolio_data = json.loads(json_str)
-            return {
-                "status": "complete",
-                "message": response.split("[PORTFOLIO_COMPLETE]")[0].strip(),
-                "portfolio": portfolio_data
-            }
-        except json.JSONDecodeError:
-            pass
-    
-    return {
-        "status": "in_progress",
-        "message": response,
-        "portfolio": None
-    }
 
-def clear_session(session_id: str):
-    if session_id in session_memories:
-        del session_memories[session_id]
+    response = llm.invoke(prompt).content.strip()
+
+    if "```" in response:
+        parts = response.split("```")
+        response = parts[1] if len(parts) > 1 else response
+        if response.lower().startswith("json"):
+            response = response[4:].strip()
+
+    try:
+        return json.loads(response)
+    except json.JSONDecodeError:
+        return {
+            "portfolio_summary": f"{region} {industry} 분야 {job} 희망 구직자입니다.",
+            "strength_tags": profile.get("skills", [])[:3],
+            "weakness_hint": "추가 분석이 필요합니다.",
+            "completeness_score": 0.3
+        }
