@@ -1,62 +1,45 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from agent import chat, clear_session
+import uuid
 
 app = FastAPI()
 
+class ChatRequest(BaseModel):
+    session_id: str | None = None  # 없으면 새 세션 시작
+    message: str
 
-@app.post("/f01/generate")
-def generate_portfolio(data: dict):
-    target = data["target"]
-    profile = data["profile"]
+class ChatResponse(BaseModel):
+    session_id: str
+    status: str          # "in_progress" | "complete"
+    message: str
+    portfolio: dict | None = None
 
-    job = target["job"]
-    industry = target["industry"]
-    region = target["region"]
+@app.post("/f01/chat", response_model=ChatResponse)
+def f01_chat(req: ChatRequest):
+    # 세션 ID 없으면 새로 발급
+    session_id = req.session_id or str(uuid.uuid4())
+    
+    try:
+        result = chat(session_id, req.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return ChatResponse(
+        session_id=session_id,
+        status=result["status"],
+        message=result["message"],
+        portfolio=result.get("portfolio")
+    )
 
-    skills = profile.get("skills", [])
-    certificates = profile.get("certificates", [])
-    projects = profile.get("projects", [])
-    activities = profile.get("activities", [])
-    training_history = profile.get("training_history", [])
+@app.delete("/f01/session/{session_id}")
+def delete_session(session_id: str):
+    clear_session(session_id)
+    return {"message": "세션 삭제 완료"}
 
-    portfolio_summary = f"{region} {industry} 분야의 {job}를 희망하는 구직자입니다."
-
-    strength_tags = []
-
-    if "Python" in skills:
-        strength_tags.append("Python 기초")
-
-    if "SQL" in skills:
-        strength_tags.append("SQL 기초")
-
-    if "FastAPI" in skills:
-        strength_tags.append("백엔드 API 개발 기초")
-
-    if len(projects) > 0:
-        strength_tags.append("프로젝트 경험")
-
-    if len(activities) > 0:
-        strength_tags.append("대외활동 경험")
-
-    ncs_tag_candidates = ["응용SW엔지니어링", "데이터베이스", "서버프로그램구현"]
-
-    f02_projects = []
-    for project in projects:
-        f02_projects.append({
-            "name": project.get("name", ""),
-            "tech_stack": project.get("tech_stack", [])
-        })
-
-    return {
-        "portfolio_summary": portfolio_summary,
-        "strength_tags": strength_tags,
-        "skill_tags": skills,
-        "ncs_tag_candidates": ncs_tag_candidates,
-        "next_step_for_f02": {
-            "target_job": job,
-            "target_region": region,
-            "skills": skills,
-            "certificates": certificates,
-            "projects": f02_projects,
-            "ncs_tag_candidates": ncs_tag_candidates
-        }
-    }
+# 기존 엔드포인트 — F-02 연동용으로 유지
+@app.get("/f01/portfolio/{session_id}")
+def get_portfolio(session_id: str):
+    """F-02가 호출해서 포트폴리오 가져가는 엔드포인트"""
+    # TODO: Chroma DB 연동 후 저장된 포트폴리오 반환
+    return {"message": "추후 Chroma DB 연동 예정", "session_id": session_id}
