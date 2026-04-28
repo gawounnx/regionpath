@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 JOB_API_KEY = os.getenv("WORKNET_KEY_JOB")
-JOB_DIC_URL = "https://www.work24.go.kr/cm/openApi/call/wk/callOpenApiSvcInfo310L01.do"
+JOB_DIC_URL = "https://www.work24.go.kr/cm/openApi/call/wk/callOpenApiSvcInfo215L01.do"
 
 JOB_TO_NCS = {
     "백엔드":    ["응용SW엔지니어링", "서버프로그램구현", "데이터베이스"],
