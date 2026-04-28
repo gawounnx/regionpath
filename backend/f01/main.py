@@ -54,7 +54,12 @@ def generate_portfolio(data: PortfolioRequest):
             "portfolio_summary":  llm_result["portfolio_summary"],
             "strength_tags":      llm_result["strength_tags"],
             "weakness_hint":      llm_result.get("weakness_hint", ""),
-            "completeness_score": llm_result.get("completeness_score", 0.5),
+            "completeness_score": (
+            (0.25 if data.profile.skills else 0) +
+            (0.25 if data.profile.certificates else 0) +
+            (0.25 if data.profile.projects else 0) +
+            (0.25 if data.profile.education else 0)
+             ),
             "skill_tags":         data.profile.skills,
             "ncs_tag_candidates": ncs_tags,
             "next_step_for_f02": {
