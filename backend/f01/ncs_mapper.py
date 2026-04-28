@@ -37,25 +37,26 @@ def fetch_ncs_from_api(keyword: str, count: int = 5) -> list[dict]:
     try:
         params = {
             "authKey":    JOB_API_KEY,
-            "returnType": "json",
-            "keyword":    keyword,
-            "maxCount":   count
+            "jobCont":    keyword,
+            "limit":      count,
+            "returnType": "JSON"
         }
         res = requests.get(JOB_DIC_URL, params=params, timeout=5)
         res.raise_for_status()
-        data  = res.json()
-        items = data.get("searchResultList", [])
-        return [
-            {
-                "unit_name":   item.get("ntcsNm", ""),
-                "unit_code":   item.get("ntcsCd", ""),
-                "large_name":  item.get("kcsCdNmLarge", ""),
-                "medium_name": item.get("kcsCdNmMedium", ""),
-                "small_name":  item.get("kcsCdNmSmall", ""),
-                "detail_code": item.get("kcsCdDetail", ""),
-            }
-            for item in items if item.get("ntcsNm")
-        ]
+        data = res.json()
+        items = data.get("result", {})
+        result = []
+        for unit_name, unit_data in items.items():
+            if isinstance(unit_data, dict):
+                result.append({
+                    "unit_name":   unit_data.get("job_sdvn", unit_name),
+                    "unit_code":   unit_data.get("ablt_unit", ""),
+                    "large_name":  unit_data.get("job_lcfn", ""),
+                    "medium_name": unit_data.get("job_mcn", ""),
+                    "small_name":  unit_data.get("job_scfn", ""),
+                    "detail_code": unit_data.get("job_sdvn_cd", ""),
+                })
+        return result[:count]
     except Exception as e:
         print(f"[NCS API 오류] {e}")
         return []
