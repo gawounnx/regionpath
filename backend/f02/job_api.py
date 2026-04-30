@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 load_dotenv()
 
 API_KEY = os.environ.get("EMPLOYMENT_API_KEY")
-BASE_URL = "https://www.work24.go.kr/cm/openApi/call/wk/callOpenApiSvcInfo210L01.do"
+BASE_URL = "https://www.work24.go.kr/cm/openApi/call/wk/callOpenApiSvcInfo210L21.do"
 
 
 def get_employment_info(
@@ -56,7 +56,7 @@ def get_employment_info(
     if region:
         params["region"] = region
     if occupation:
-        params["occupation"] = occupation
+        params["jobsCd"] = occupation
     if keyword:
         params["keyword"] = keyword
     if education:
@@ -78,63 +78,44 @@ def get_employment_info(
         raise RuntimeError(f"API 오류: {error}")
 
     results = []
-    for item in root.iter("wanted"):
-        results.append({child.tag: child.text for child in item})
+    for item in root.iter("dhsOpenEmpInfo"):
+        raw = {child.tag: child.text for child in item}
+        results.append({
+            "title":    raw.get("empWantedTitle", ""),
+            "company":  raw.get("empBusiNm", ""),
+            "site_url": raw.get("empWantedHomepgDetail", ""),
+        })
 
     return results
 
 
-# ── 디버깅 ────────────────────────────────────────────────────────────────────
-def _debug():
-    print("=" * 60)
-    print("1. 환경변수 확인")
-    print(f"   EMPLOYMENT_API_KEY: {'설정됨 (' + API_KEY[:10] + '...)' if API_KEY else '없음 (.env 확인 필요)'}")
-    print(f"   BASE_URL          : {BASE_URL}")
-    print()
+def search_jobs_by_code(occupation_cd: str, display: int = 10) -> None:
+    """직종코드로 채용공고를 검색하고 결과를 출력합니다."""
+    print(f"직종코드 [{occupation_cd}] 채용공고 검색 중...")
+    print("-" * 60)
 
-    print("2. 원시 응답 확인 (파라미터 없이)")
-    params_raw = {
-        "authKey": API_KEY,
-        "callTp": "L",
-        "returnType": "XML",
-        "startPage": 1,
-        "display": 3,
-    }
-    resp = requests.get(BASE_URL, params=params_raw, timeout=10)
-    print(f"   상태코드: {resp.status_code}")
-    print(f"   응답:\n{resp.text[:400]}")
-    print()
+    results = get_employment_info(occupation=occupation_cd, display=display)
 
-    root = ET.fromstring(resp.content)
-    error = root.findtext("error")
-    if error:
-        print(f"[오류] API 응답 에러: {error}")
-        print()
-        print("해결 방법:")
-        print("  1. https://www.work24.go.kr/cm/e/a/0110/listOpenApiSvcInfo.do 접속")
-        print("  2. '채용정보 API' 활용신청")
-        print("  3. 승인 후 발급 키를 .env의 EMPLOYMENT_API_KEY에 업데이트")
+    if not results:
+        print("검색 결과13100가 없습니다.")
         return
 
-    print("3. 키워드 검색 테스트 (keyword='백엔드', display=5)")
-    try:
-        results = get_employment_info(keyword="백엔드", display=5)
-        print(f"   채용공고 {len(results)}건\n")
-        for i, job in enumerate(results, 1):
-            print(f"   [{i}] {job.get('company', '-')} - {job.get('title', '-')}")
-            print(f"        지역: {job.get('region', '-')} | 급여: {job.get('sal', '-')} | 등록일: {job.get('regDt', '-')}")
-    except RuntimeError as e:
-        print(f"   {e}")
-    print()
-
-    print("4. 지역 필터 테스트 (region='11', 서울)")
-    try:
-        results = get_employment_info(region="11", display=3)
-        print(f"   서울 채용공고 {len(results)}건")
-    except RuntimeError as e:
-        print(f"   {e}")
-    print("=" * 60)
+    print(f"총 {len(results)}건\n")
+    for i, job in enumerate(results, 1):
+        print(f"[{i}] {job['title']}")
+        print(f"     업체명 : {job['company']}")
+        print(f"     URL    : {job['site_url']}")
+        print()
 
 
 if __name__ == "__main__":
-    _debug()
+    import sys
+
+    if len(sys.argv) >= 2:
+        code = sys.argv[1]
+        count = int(sys.argv[2]) if len(sys.argv) >= 3 else 10
+    else:
+        code = input("직종 코드를 입력하세요: ").strip()
+        count = 10
+
+    search_jobs_by_code(occupation_cd=code, display=count)
